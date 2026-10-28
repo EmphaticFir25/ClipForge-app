@@ -33,6 +33,7 @@
     dirty: false,
     sheet: false,     // phones: the editor is open full screen
     scheduleOpen: false,
+    accounts: null,
     showUpload: false,
     file: null,
     uploading: false,
@@ -183,11 +184,12 @@
     const [section, id] = location.hash.replace(/^#\/?/, "").split("/");
     if (section === "schedule") return { name: "schedule" };
     if (section === "account") return { name: "account" };
+    if (section === "accounts") return { name: "accounts" };
     if (section === "clips" && id) return { name: "job", id: decodeURIComponent(id) };
     return { name: "clips" };
   }
 
-  const TITLES = { clips: "Clips", job: "Stream", schedule: "Schedule", account: "Account" };
+  const TITLES = { clips: "Clips", job: "Stream", schedule: "Schedule", accounts: "Accounts", account: "Account" };
 
   function setNav(name) {
     document.querySelectorAll("[data-nav]").forEach((a) => {
@@ -222,6 +224,7 @@
       if (r.name === "job") await showJob(r.id);
       if (r.name === "schedule") await showSchedule();
       if (r.name === "account") await showAccount();
+      if (r.name === "accounts") await showAccounts();
     } catch (err) {
       if (err.message !== "unauthorized") toast(err.message, "bad");
     }
@@ -821,9 +824,23 @@
 
   // ---------- scheduling ----------
 
-  function toggleSchedule() {
+  async function toggleSchedule() {
+    if (!state.scheduleOpen) await loadAccounts();
     state.scheduleOpen = !state.scheduleOpen;
     renderEditor();
+  }
+
+  async function loadAccounts() {
+    try {
+      const out = await api("/v1/accounts");
+      state.accounts = out.accounts;
+    } catch (err) {
+      if (err.message !== "unauthorized") toast(err.message, "bad");
+    }
+  }
+
+  function connectedPlatforms() {
+    return (state.accounts || []).filter((a) => a.connected && a.status === "connected");
   }
 
   function scheduleForm(c) {
@@ -831,17 +848,25 @@
     min.setSeconds(0, 0);
     const minValue = new Date(min - min.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     const plans = state.me ? state.me.publishing : false;
+    const offered = connectedPlatforms();
+    if (!offered.length) {
+      return `
+        <div class="schedule-form" id="scheduleForm">
+          <p class="muted-note" style="grid-column:1/-1">Connect YouTube or TikTok on the <a href="#/accounts">Accounts</a> page before you schedule a post.</p>
+        </div>`;
+    }
+    const options = offered.map((a) => `<option value="${esc(a.platform)}">${esc(a.label)}${a.display_name ? ` (${esc(a.display_name)})` : ""}</option>`).join("");
     return `
       <form class="schedule-form" id="scheduleForm">
-        <label class="field"><span>Platform</span>
-          <select name="platform" required><option value="youtube">YouTube Shorts</option><option value="tiktok">TikTok</option></select>
+        <label class="field"><span>Account</span>
+          <select name="platform" required>${options}</select>
         </label>
         <label class="field"><span>When</span>
           <input name="when" type="datetime-local" min="${minValue}" required>
         </label>
         <button class="btn primary" type="submit">Schedule</button>
         <p class="muted-note" style="grid-column:1/-1">${plans
-          ? "Scheduled posts wait for platform approval. Nothing is posted until then."
+          ? "The post goes out at that time, private on YouTube and only visible to you on TikTok until you change it there."
           : "Scheduling is included on Pro and Business."}</p>
       </form>`;
   }
@@ -875,6 +900,80 @@
     posted: { label: "Posted", cls: "done" },
     failed: { label: "Didn't post", cls: "failed" },
   };
+
+  // ---------- connected accounts ----------
+
+  const PLATFORM_HELP = {
+    youtube: "Uploads go to your channel as private videos. You change their visibility on YouTube.",
+    tiktok: "Posts are visible only to you until you change them on TikTok. TikTok may limit posting until the app is approved.",
+  };
+
+  async function showAccounts() {
+    setTitle(TITLES.accounts);
+    const out = await api("/v1/accounts");
+    state.accounts = out.accounts;
+    const cards = out.accounts.map((a) => {
+      let status = "Not connected";
+      let tone = "";
+      if (!a.available) status = "Not set up on this server yet";
+      else if (a.connected && a.status === "needs_reconnect") { status = "Needs reconnecting. Scheduled posts wait until you do."; tone = "failed"; }
+      else if (a.connected) { status = `Connected${a.display_name ? ` as ${a.display_name}` : ""}`; tone = "done"; }
+      const action = !a.available ? "" : a.connected
+        ? `${a.status === "needs_reconnect" ? `<button class="btn primary" type="button" data-action="connect-account" data-platform="${a.platform}">Reconnect</button>` : ""}
+           <button class="btn quiet" type="button" data-action="disconnect-account" data-platform="${a.platform}">Disconnect</button>`
+        : `<button class="btn primary" type="button" data-action="connect-account" data-platform="${a.platform}">Connect ${esc(a.label)}</button>`;
+      return `
+        <section class="stat-card account-card">
+          <h2>${esc(a.label)}</h2>
+          <p><span class="pill ${tone}">${esc(status)}</span></p>
+          <p class="dust small">${esc(PLATFORM_HELP[a.platform] || "")}</p>
+          <div class="actions">${action}</div>
+        </section>`;
+    });
+    $("#view").innerHTML = `
+      <p class="lede">Connect the channels you post to. ClipForge asks only for the permissions it needs, and you can disconnect at any time.</p>
+      <div class="account-grid">${cards.join("")}</div>`;
+  }
+
+  async function connectAccount(platform) {
+    try {
+      const out = await api(`/v1/accounts/${encodeURIComponent(platform)}/connect`, { method: "POST" });
+      // Leaves the app for the platform's sign-in page. The platform sends the browser back here.
+      location.href = out.url;
+    } catch (err) {
+      if (err.message !== "unauthorized") toast(err.message, "bad");
+    }
+  }
+
+  async function disconnectAccount(platform) {
+    try {
+      const out = await api(`/v1/accounts/${encodeURIComponent(platform)}`, { method: "DELETE" });
+      toast(out.revoked_at_provider
+        ? "Disconnected. ClipForge no longer has access."
+        : "Disconnected here. Remove ClipForge in the platform's app settings to be sure.", out.revoked_at_provider ? "good" : "");
+      await showAccounts();
+    } catch (err) {
+      if (err.message !== "unauthorized") toast(err.message, "bad");
+    }
+  }
+
+  // The platform sends the browser back with the result in the fragment.
+  function handleAccountResult() {
+    const hash = location.hash;
+    if (hash.startsWith("#accounts=")) {
+      const name = decodeURIComponent(hash.slice("#accounts=".length));
+      history.replaceState(null, "", location.pathname + "#/accounts");
+      toast(`${name === "youtube" ? "YouTube" : "TikTok"} connected.`, "good");
+      return true;
+    }
+    if (hash.startsWith("#accounts_error=")) {
+      const message = decodeURIComponent(hash.slice("#accounts_error=".length));
+      history.replaceState(null, "", location.pathname + "#/accounts");
+      toast(message, "bad");
+      return true;
+    }
+    return false;
+  }
 
   async function showSchedule() {
     setTitle(TITLES.schedule);
@@ -1042,6 +1141,8 @@
         case "toggle-upload": toggleUpload(); break;
         case "toggle-schedule": toggleSchedule(); break;
         case "delete-schedule": deleteSchedule(t.dataset.id); break;
+        case "connect-account": connectAccount(t.dataset.platform); break;
+        case "disconnect-account": disconnectAccount(t.dataset.platform); break;
         case "back":
           if (state.sheet && window.innerWidth < 1000) { state.sheet = false; syncSheet(); }
           else location.hash = "#/clips";
@@ -1073,6 +1174,7 @@
   async function start() {
     wire();
     showBillingResult();
+    handleAccountResult();
     loadProviders();
     if (location.hash.startsWith("#oauth_error=")) {
       const message = decodeURIComponent(location.hash.slice("#oauth_error=".length));

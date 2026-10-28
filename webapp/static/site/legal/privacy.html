@@ -44,11 +44,27 @@
   <h2>Retention</h2>
   <p>Clips and source files are deleted after your plan's retention period (7, 30 or 90 days). Account records are kept while your account exists and for a short period after, to meet legal and accounting duties.</p>
 
+  <h2>Connected YouTube and TikTok accounts</h2>
+  <p>If you connect a YouTube or TikTok account, we store:</p>
+  <ul>
+    <li>the platform's ID for your account and its display name,</li>
+    <li>the permissions you granted, and</li>
+    <li>an access token and a refresh token. We encrypt both, and they are never shown in the app, in logs or in error messages.</li>
+  </ul>
+  <p>We ask for only these permissions:</p>
+  <ul>
+    <li><strong>YouTube:</strong> <code>youtube.upload</code>, to upload videos to your channel; and <code>youtube.readonly</code>, to read your channel's name.</li>
+    <li><strong>TikTok:</strong> <code>user.info.basic</code>, to read your display name; and <code>video.publish</code>, to post a video.</li>
+  </ul>
+  <p>We use these permissions only to post clips that you have scheduled. We never post without a schedule you set. New uploads are private on YouTube and visible only to you on TikTok until you change them on the platform.</p>
+  <p>Your tokens are deleted when you disconnect an account, when you delete your ClipForge account, or when the platform revokes access. Disconnecting also revokes the token with the platform.</p>
+  <p>ClipForge's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including its Limited Use requirements.</p>
+
   <h2>Who we share with</h2>
   <ul>
     <li><strong>Stripe</strong>, for payments.</li>
     <li><strong>Email delivery providers</strong>, to send sign-in links.</li>
-    <li><strong>Platforms you connect</strong>, such as YouTube or TikTok, only when you ask us to post to them.</li>
+    <li><strong>YouTube and TikTok</strong>, only to upload clips you have scheduled, using the account you connected.</li>
     <li>Authorities, when the law requires it.</li>
   </ul>
 

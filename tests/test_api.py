@@ -91,3 +91,36 @@ def test_oversize_upload_is_refused_before_reaching_the_service(tmp_path, monkey
                data={"rights_confirmed": "true"})
     assert r.status_code == 413
     assert service.store.list_jobs(service.authenticate(key)["id"]) == []
+
+
+def test_account_routes_need_a_key(client):
+    c, _ = client
+    assert c.get("/v1/accounts").status_code == 401
+    assert c.post("/v1/accounts/youtube/connect").status_code == 401
+    assert c.delete("/v1/accounts/youtube").status_code == 401
+
+
+def test_callback_without_the_browser_cookie_is_refused_and_links_nothing(client):
+    c, service = client
+    key = _key(service, "cb@example.com")  # free plan; cannot connect either way
+    r = c.get("/v1/accounts/youtube/callback?code=abc&state=forged", follow_redirects=False)
+    assert r.status_code == 302
+    assert "#accounts_error=" in r.headers["location"]
+    user = service.authenticate(key)
+    assert service.store.get_platform_account(user["id"], "youtube") is None
+
+
+def test_connect_start_sets_an_httponly_nonce_cookie(tmp_path, monkeypatch):
+    from cryptography.fernet import Fernet
+    from webapp.secretbox import SecretBox
+    monkeypatch.setenv("YOUTUBE_CLIENT_ID", "yt-client")
+    monkeypatch.setenv("YOUTUBE_CLIENT_SECRET", "yt-secret")
+    service = make_service(tmp_path, secret_box=SecretBox(Fernet.generate_key()))
+    app = create_app(service)
+    c = TestClient(SecurityMiddleware(app, https_only=False))
+    key = service.create_user("pro@example.com", plan="pro")
+    r = c.post("/v1/accounts/youtube/connect", headers={"X-API-Key": key})
+    assert r.status_code == 200 and r.json()["url"].startswith("https://accounts.google.com/")
+    cookie = r.headers["set-cookie"].lower()
+    assert "cf_connect=" in cookie and "httponly" in cookie and "samesite=lax" in cookie
+    assert "yt-secret" not in r.text

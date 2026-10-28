@@ -61,6 +61,8 @@ def test_other_user_cannot_schedule_someone_elses_clip(two_users):
 
 def test_other_user_cannot_delete_a_schedule_by_id(two_users):
     service, alice, bob, job_id = two_users
+    from conftest_helpers import connect_fake_account
+    connect_fake_account(service, alice, "youtube")
     when = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
     row = service.create_schedule(alice, job_id, 1, "youtube", when)
     assert service.delete_schedule(bob, row["id"]) is False

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .billing import BillingConfig, BillingDisabled, BillingError, checkout_form, create_checkout_session, handle_event, verify_signature
 from . import oauth
+from .platforms import PlatformError
 from .service import PLANS, QuotaExceeded, Service, ServiceError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -203,6 +204,59 @@ def create_app(service: Service) -> FastAPI:
         if path is None:
             raise HTTPException(status_code=404, detail="nothing rendered in that aspect yet")
         return FileResponse(path, media_type="application/zip", filename=f"clipforge_{job_id[:8]}_{aspect.replace(':', 'x')}.zip")
+
+    CONNECT_COOKIE = "cf_connect"
+    cookie_secure = os.environ.get("CLIPFORGE_HTTPS_ONLY", "0") == "1"
+
+    @app.get("/v1/accounts")
+    def list_accounts(user: dict = Depends(current_user)):
+        return {"accounts": service.platform_accounts(user)}
+
+    @app.post("/v1/accounts/{platform}/connect")
+    def start_connect(platform: str, user: dict = Depends(current_user)):
+        # POST, so the browser can send the API key header. A plain link can't.
+        try:
+            url, nonce = service.connect_start(user, platform, site_url)
+        except QuotaExceeded as e:
+            raise HTTPException(status_code=403, detail=str(e))
+        except (ServiceError, PlatformError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        from fastapi.responses import JSONResponse
+        response = JSONResponse({"url": url})
+        # The nonce ties this browser to the connection. It is HttpOnly, so scripts can't read it.
+        response.set_cookie(CONNECT_COOKIE, nonce, max_age=600, httponly=True, samesite="lax",
+                            secure=cookie_secure, path=f"/v1/accounts/{platform}")
+        return response
+
+    @app.get("/v1/accounts/{platform}/callback", include_in_schema=False)
+    def connect_callback(platform: str, request: Request, code: str = "", state: str = "", error: str = ""):
+        from urllib.parse import quote
+        from fastapi.responses import RedirectResponse
+        app_url = f"{site_url.rstrip('/')}/app"
+        nonce = request.cookies.get(CONNECT_COOKIE)
+        if error:
+            message = "the connection was cancelled"
+        else:
+            try:
+                result = service.connect_complete(platform, code, state, nonce, site_url)
+                message = None
+            except (PlatformError, ServiceError) as e:
+                message = str(e)
+        response = RedirectResponse(
+            f"{app_url}#accounts=" + quote(platform) if message is None
+            else f"{app_url}#accounts_error=" + quote(message), status_code=302)
+        response.delete_cookie(CONNECT_COOKIE, path=f"/v1/accounts/{platform}", secure=cookie_secure, samesite="lax")
+        return response
+
+    @app.delete("/v1/accounts/{platform}")
+    def disconnect_account(platform: str, user: dict = Depends(current_user)):
+        try:
+            confirmed = service.disconnect(user, platform)
+        except ServiceError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except PlatformError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"removed": True, "revoked_at_provider": confirmed}
 
     @app.get("/v1/schedules")
     def list_schedules(user: dict = Depends(current_user)):

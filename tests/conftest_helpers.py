@@ -37,3 +37,24 @@ def make_video(path: Path, seconds: float = 2, audio_only: bool = False) -> Path
         args += ["-pix_fmt", "yuv420p"]
     subprocess.run(args + [str(path)], check=True, capture_output=True)
     return path
+
+
+def connect_fake_account(service: Service, user: dict, platform: str, display: str = "Test channel") -> None:
+    """Stores a connected platform account with encrypted fake tokens, as the connect flow would."""
+    from cryptography.fernet import Fernet
+    from datetime import datetime, timedelta, timezone
+
+    from webapp.secretbox import SecretBox
+
+    if service.secret_box is None:
+        service.secret_box = SecretBox(Fernet.generate_key())
+    box = service.secret_box
+    now = datetime.now(timezone.utc)
+    service.store.upsert_platform_account({
+        "user_id": user["id"], "platform": platform, "platform_user_id": f"{platform}-{user['id'][:6]}",
+        "display_name": display, "scopes": "[]",
+        "access_token_enc": box.seal(f"access-{platform}-{user['id'][:6]}"),
+        "refresh_token_enc": box.seal(f"refresh-{platform}-{user['id'][:6]}"),
+        "access_expires_at": (now + timedelta(hours=1)).isoformat(timespec="seconds"),
+        "connected_at": now.isoformat(timespec="seconds"),
+    })

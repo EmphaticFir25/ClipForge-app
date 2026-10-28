@@ -91,6 +91,31 @@ CREATE TABLE IF NOT EXISTS auth_requests (
     requested_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS auth_requests_email ON auth_requests (email, requested_at);
+-- One connected YouTube or TikTok account per user and platform. Tokens are encrypted (SecretBox).
+CREATE TABLE IF NOT EXISTS platform_accounts (
+    user_id            TEXT NOT NULL REFERENCES users(id),
+    platform           TEXT NOT NULL CHECK (platform IN ('youtube', 'tiktok')),
+    platform_user_id   TEXT NOT NULL,
+    display_name       TEXT NOT NULL DEFAULT '',
+    scopes             TEXT NOT NULL,
+    access_token_enc   TEXT NOT NULL,
+    refresh_token_enc  TEXT NOT NULL,
+    access_expires_at  TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'connected' CHECK (status IN ('connected', 'needs_reconnect')),
+    connected_at       TEXT NOT NULL,
+    PRIMARY KEY (user_id, platform)
+);
+-- Connect flow state. It records who started the connection and a nonce the browser must present.
+CREATE TABLE IF NOT EXISTS platform_states (
+    state_hash       TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL REFERENCES users(id),
+    platform         TEXT NOT NULL,
+    verifier         TEXT NOT NULL,
+    browser_hash     TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    expires_at       TEXT NOT NULL,
+    used_at          TEXT
+);
 -- State and PKCE verifier for "Sign in with Google/GitHub". Each one works once.
 CREATE TABLE IF NOT EXISTS oauth_states (
     state_hash TEXT PRIMARY KEY,
@@ -119,7 +144,7 @@ class Store:
         additions = {
             "users": {"stripe_customer_id": "TEXT", "stripe_subscription_id": "TEXT"},
             "jobs": {"purged_at": "TEXT"},
-            "schedules": {"error": "TEXT"},
+            "schedules": {"error": "TEXT", "external_id": "TEXT"},
         }
         for table, cols_wanted in additions.items():
             have = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -383,6 +408,8 @@ class Store:
                 self._conn.execute("DELETE FROM schedules WHERE user_id = ?", (user_id,))
                 self._conn.execute("DELETE FROM jobs WHERE user_id = ?", (user_id,))
                 self._conn.execute("DELETE FROM api_keys WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM platform_accounts WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM platform_states WHERE user_id = ?", (user_id,))
                 self._conn.execute("DELETE FROM login_links WHERE email = ?", (email,))
                 self._conn.execute("DELETE FROM auth_requests WHERE email = ?", (email,))
                 self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
@@ -416,4 +443,64 @@ class Store:
             except Exception:
                 self._conn.execute("ROLLBACK")
                 raise
+
+    # connected platform accounts
+    def upsert_platform_account(self, row: dict[str, Any]) -> None:
+        self._write(
+            "INSERT INTO platform_accounts (user_id, platform, platform_user_id, display_name, scopes, "
+            "access_token_enc, refresh_token_enc, access_expires_at, status, connected_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'connected', ?) "
+            "ON CONFLICT (user_id, platform) DO UPDATE SET platform_user_id = excluded.platform_user_id, "
+            "display_name = excluded.display_name, scopes = excluded.scopes, "
+            "access_token_enc = excluded.access_token_enc, refresh_token_enc = excluded.refresh_token_enc, "
+            "access_expires_at = excluded.access_expires_at, status = 'connected', "
+            "connected_at = excluded.connected_at",
+            (row["user_id"], row["platform"], row["platform_user_id"], row["display_name"], row["scopes"],
+             row["access_token_enc"], row["refresh_token_enc"], row["access_expires_at"], row["connected_at"]),
+        )
+
+    def get_platform_account(self, user_id: str, platform: str) -> dict | None:
+        rows = self._run("SELECT * FROM platform_accounts WHERE user_id = ? AND platform = ?", (user_id, platform))
+        return rows[0] if rows else None
+
+    def list_platform_accounts(self, user_id: str) -> list[dict]:
+        return self._run("SELECT * FROM platform_accounts WHERE user_id = ? ORDER BY platform", (user_id,))
+
+    def update_platform_tokens(self, user_id: str, platform: str, access_enc: str, refresh_enc: str,
+                               expires_at: str) -> None:
+        self._write(
+            "UPDATE platform_accounts SET access_token_enc = ?, refresh_token_enc = ?, access_expires_at = ?, "
+            "status = 'connected' WHERE user_id = ? AND platform = ?",
+            (access_enc, refresh_enc, expires_at, user_id, platform))
+
+    def set_platform_status(self, user_id: str, platform: str, status: str) -> None:
+        self._write("UPDATE platform_accounts SET status = ? WHERE user_id = ? AND platform = ?",
+                    (status, user_id, platform))
+
+    def delete_platform_account(self, user_id: str, platform: str) -> int:
+        return self._write("DELETE FROM platform_accounts WHERE user_id = ? AND platform = ?", (user_id, platform))
+
+    def insert_platform_state(self, row: dict[str, Any]) -> None:
+        self._write(
+            "INSERT INTO platform_states (state_hash, user_id, platform, verifier, browser_hash, created_at, "
+            "expires_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+            (row["state_hash"], row["user_id"], row["platform"], row["verifier"], row["browser_hash"],
+             row["created_at"], row["expires_at"]))
+
+    def get_platform_state(self, state_hash: str) -> dict | None:
+        rows = self._run("SELECT * FROM platform_states WHERE state_hash = ?", (state_hash,))
+        return rows[0] if rows else None
+
+    def claim_platform_state(self, state_hash: str, now_iso: str) -> bool:
+        """Marks an unused, unexpired state as used. Returns True only for the first claim."""
+        return self._write(
+            "UPDATE platform_states SET used_at = ? WHERE state_hash = ? AND used_at IS NULL AND expires_at >= ?",
+            (now_iso, state_hash, now_iso)) == 1
+
+    def set_schedule_external_id(self, schedule_id: str, external_id: str) -> None:
+        self._write("UPDATE schedules SET external_id = ? WHERE id = ?", (external_id, schedule_id))
+
+    def get_schedule(self, schedule_id: str) -> dict | None:
+        rows = self._run("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+        return rows[0] if rows else None
 

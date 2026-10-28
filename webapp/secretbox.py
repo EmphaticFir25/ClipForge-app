@@ -48,6 +48,8 @@ _PATTERNS = [
     (re.compile(r"sk_(?:live|test)_[A-Za-z0-9]+"), "sk_[redacted]"),
     (re.compile(r"whsec_[A-Za-z0-9]+"), "whsec_[redacted]"),
     (re.compile(r"ya29\.[A-Za-z0-9._\-]+"), "[redacted-token]"),
+    (re.compile(r"(?<![A-Za-z0-9])act\.[A-Za-z0-9._\-]{16,}"), "act.[redacted]"),  # TikTok access tokens
+    (re.compile(r"(?i)(refresh_token|code_verifier)[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9._\-]+"), r"\1=[redacted]"),
     (re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]+"), "Bearer [redacted]"),
     (re.compile(r"(?i)(access_token|refresh_token|client_secret|password|token)=[^&\s]+"), r"\1=[redacted]"),
     (re.compile(r"(?i)#login=[A-Za-z0-9_\-]+"), "#login=[redacted]"),

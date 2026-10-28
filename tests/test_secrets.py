@@ -36,8 +36,8 @@ def test_missing_key_in_environment_is_an_error(monkeypatch):
     ("signed in with cf_abcdefghijklmnopqrstuvwxyz123456", "cf_abcdefghijklmnopqrstuvwxyz123456"),
     # built at runtime so no secret-shaped literal sits in the repo
     ("stripe key " + "sk_" + "test_" + "x" * 24, "sk_test_" + "x" * 24),
-    ("webhook whsec_abc123def456", "whsec_abc123def456"),
-    ("Authorization: Bearer ya29.a0AfH6SMBx", "ya29.a0AfH6SMBx"),
+    ("webhook whsec_" + "fake-webhook-secret", "whsec_" + "fake-webhook-secret"),
+    ("Authorization: Bearer ya29.fake-google-token", "ya29.fake-google-token"),
     ("callback?access_token=zzz111&state=ok", "zzz111"),
     ("opened http://x/app#login=TOKENVALUE123", "TOKENVALUE123"),
 ])

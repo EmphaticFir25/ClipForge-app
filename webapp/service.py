@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import time
 import secrets
 import shutil
 import smtplib
@@ -15,6 +17,8 @@ import os
 from pathlib import Path
 from typing import BinaryIO, Callable
 
+from . import platforms
+from .secretbox import SecretBox, SecretError
 from .store import Store
 
 GB = 1024 ** 3
@@ -133,9 +137,13 @@ def _default_probe(path: Path) -> float:
 class Service:
     def __init__(self, store: Store, data_dir: Path, plans: dict | None = None,
                  probe_minutes: Callable[[Path], float] | None = None, mailer=None,
-                 cancel_subscription: Callable[[str], None] | None = None):
+                 cancel_subscription: Callable[[str], None] | None = None,
+                 secret_box=None, platform_http=None, platform_sleep=None):
         self.store = store
         self.cancel_subscription = cancel_subscription
+        self.secret_box = secret_box
+        self.platform_http = platform_http or platforms.default_http
+        self.platform_sleep = platform_sleep or time.sleep
         self.data_dir = Path(data_dir)
         self.plans = plans or PLANS
         self.probe_minutes = probe_minutes or _default_probe
@@ -261,6 +269,11 @@ class Service:
                 self.cancel_subscription(user["stripe_subscription_id"])
             except Exception:
                 raise ServiceError("we couldn't cancel your paid plan, so your account is still open. Try again shortly.")
+        for account in self.store.list_platform_accounts(user["id"]):
+            try:
+                self.disconnect(user, account["platform"])  # revokes at the platform, then deletes the row
+            except Exception:
+                pass  # the row is deleted below either way
         for job_id in self.store.job_ids_for_user(user["id"]):
             shutil.rmtree(self.job_dir(job_id), ignore_errors=True)
         self.store.delete_user_data(user["id"], user["email"])
@@ -570,6 +583,8 @@ class Service:
             raise ServiceError(f"platform must be one of {', '.join(PLATFORMS)}")
         if self.get_job(user, job_id) is None:
             raise ServiceError("job not found")
+        if self.store.get_platform_account(user["id"], platform) is None:
+            raise ServiceError(f"connect your {platforms.CONFIG[platform]['label']} account on the Accounts page first")
         try:
             when = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
         except ValueError:
@@ -591,6 +606,149 @@ class Service:
 
     def delete_schedule(self, user: dict, schedule_id: str) -> bool:
         return self.store.delete_schedule(user["id"], schedule_id) > 0
+
+    # ----- connected platform accounts (YouTube, TikTok) -----
+
+    def _box(self):
+        if self.secret_box is None:
+            try:
+                self.secret_box = SecretBox.from_env()
+            except SecretError:
+                raise platforms.PlatformError("account connections aren't set up on this server")
+        return self.secret_box
+
+    def _check_platform(self, platform: str) -> None:
+        if platform not in platforms.CONFIG:
+            raise ServiceError(f"platform must be one of {', '.join(platforms.CONFIG)}")
+
+    def platform_accounts(self, user: dict) -> list[dict]:
+        """What the Accounts page needs. Never includes tokens."""
+        linked = {r["platform"]: r for r in self.store.list_platform_accounts(user["id"])}
+        out = []
+        for name, cfg in platforms.CONFIG.items():
+            row = linked.get(name)
+            out.append({
+                "platform": name,
+                "label": cfg["label"],
+                "available": platforms.configured(name),
+                "connected": row is not None,
+                "status": row["status"] if row else None,
+                "display_name": row["display_name"] if row else "",
+                "connected_at": row["connected_at"] if row else None,
+            })
+        return out
+
+    def connect_start(self, user: dict, platform: str, site_url: str, now: datetime | None = None) -> tuple[str, str]:
+        """Returns (authorize URL, browser nonce). The nonce must come back in a cookie on the callback."""
+        self._check_platform(platform)
+        if not platforms.configured(platform):
+            raise ServiceError(f"{platforms.CONFIG[platform]['label']} connections aren't set up on this server")
+        if not self.plans[user["plan"]]["publishing"]:
+            raise QuotaExceeded("posting to platforms is included on Pro and Business")
+        self._box()  # tokens can't be stored without the encryption key
+        now = now or datetime.now(timezone.utc)
+        state, verifier = platforms.new_state()
+        nonce = secrets.token_urlsafe(32)
+        self.store.insert_platform_state({
+            "state_hash": platforms.hash_value(state), "user_id": user["id"], "platform": platform,
+            "verifier": verifier, "browser_hash": platforms.hash_value(nonce),
+            "created_at": now.isoformat(timespec="seconds"),
+            "expires_at": (now + platforms.STATE_TTL).isoformat(timespec="seconds"),
+        })
+        return platforms.authorize_url(platform, site_url, state, verifier), nonce
+
+    def connect_complete(self, platform: str, code: str, state: str, browser_nonce: str | None,
+                         site_url: str, now: datetime | None = None) -> dict:
+        """Stores the account under the user who started the connection, if this browser started it."""
+        self._check_platform(platform)
+        if not code or not state:
+            raise platforms.PlatformError("the connection was cancelled")
+        now = now or datetime.now(timezone.utc)
+        now_iso = now.isoformat(timespec="seconds")
+        row = self.store.get_platform_state(platforms.hash_value(state))
+        if (row is None or row["platform"] != platform or row["used_at"] is not None
+                or row["expires_at"] < now_iso):
+            raise platforms.PlatformError("this connection link expired or was already used. Start again from Accounts.")
+        # Must come from the browser that started it. A link sent to someone else won't work for them.
+        if not browser_nonce or not hmac.compare_digest(platforms.hash_value(browser_nonce), row["browser_hash"]):
+            raise platforms.PlatformError("open the connection from the same browser where you started it")
+        if not self.store.claim_platform_state(platforms.hash_value(state), now_iso):
+            raise platforms.PlatformError("this connection link was already used. Start again from Accounts.")
+        user = self.store.get_user_by_id(row["user_id"])
+        if user is None:
+            raise platforms.PlatformError("this account no longer exists")
+
+        tokens = platforms.exchange_code(platform, code, row["verifier"], site_url, self.platform_http)
+        if not tokens["refresh_token"]:
+            raise platforms.PlatformError("the platform didn't issue a refresh token. Try connecting again.")
+        ident = platforms.identity(platform, tokens["access_token"], self.platform_http)
+        box = self._box()
+        expires = now + timedelta(seconds=tokens["expires_in"])
+        self.store.upsert_platform_account({
+            "user_id": user["id"], "platform": platform,
+            "platform_user_id": ident["platform_user_id"], "display_name": ident["display_name"],
+            "scopes": json.dumps(platforms.CONFIG[platform]["scopes"]),
+            "access_token_enc": box.seal(tokens["access_token"]),
+            "refresh_token_enc": box.seal(tokens["refresh_token"]),
+            "access_expires_at": expires.isoformat(timespec="seconds"),
+            "connected_at": now_iso,
+        })
+        return {"platform": platform, "label": platforms.CONFIG[platform]["label"],
+                "display_name": ident["display_name"]}
+
+    def fresh_access_token(self, user: dict, platform: str, now: datetime | None = None) -> str:
+        """Returns a usable access token, refreshing it first if it's close to expiry."""
+        self._check_platform(platform)
+        label = platforms.CONFIG[platform]["label"]
+        row = self.store.get_platform_account(user["id"], platform)
+        if row is None:
+            raise platforms.PlatformError(f"connect your {label} account on the Accounts page first")
+        if row["status"] == "needs_reconnect":
+            raise platforms.ReconnectRequired(f"reconnect your {label} account on the Accounts page to post")
+        box = self._box()
+        now = now or datetime.now(timezone.utc)
+        if datetime.fromisoformat(row["access_expires_at"]) - now > platforms.REFRESH_BEFORE:
+            return box.open(row["access_token_enc"])
+        try:
+            refreshed = platforms.refresh(platform, box.open(row["refresh_token_enc"]), self.platform_http)
+        except platforms.ReconnectRequired:
+            self.store.set_platform_status(user["id"], platform, "needs_reconnect")
+            raise platforms.ReconnectRequired(f"reconnect your {label} account on the Accounts page to post")
+        new_refresh = refreshed["refresh_token"] or box.open(row["refresh_token_enc"])
+        self.store.update_platform_tokens(
+            user["id"], platform, box.seal(refreshed["access_token"]), box.seal(new_refresh),
+            (now + timedelta(seconds=refreshed["expires_in"])).isoformat(timespec="seconds"))
+        return refreshed["access_token"]
+
+    def disconnect(self, user: dict, platform: str) -> bool:
+        """Revokes the account at the platform and deletes the stored tokens. Returns True if the platform confirmed."""
+        self._check_platform(platform)
+        row = self.store.get_platform_account(user["id"], platform)
+        if row is None:
+            raise ServiceError(f"{platforms.CONFIG[platform]['label']} isn't connected")
+        confirmed = False
+        try:
+            token = self._box().open(row["refresh_token_enc"])
+            platforms.revoke(platform, token, self.platform_http)
+            confirmed = True
+        except Exception:
+            confirmed = False
+        self.store.delete_platform_account(user["id"], platform)
+        return confirmed
+
+    def publish_scheduled_post(self, row: dict) -> str:
+        """The dispatcher's publish step: uploads one clip with the owner's own token. Returns the platform's ID."""
+        user = self.store.get_user_by_id(row["user_id"])
+        if user is None:
+            raise platforms.PlatformError("this account no longer exists")
+        token = self.fresh_access_token(user, row["platform"])
+        video = self.variant_file(user, row["job_id"], row["clip_n"], "9:16")
+        if video is None:
+            raise platforms.PlatformError("this clip is no longer available. Render it again or remove the post.")
+        external = platforms.upload(row["platform"], token, video, "Clip from my stream",
+                                    "Made with ClipForge.", self.platform_http, self.platform_sleep)
+        self.store.set_schedule_external_id(row["id"], external)
+        return external
 
     # ----- maintenance: run from the worker loop or `python -m webapp.maintenance` -----
 
@@ -618,22 +776,23 @@ class Service:
         with a message the user can act on. `publish` is the hook for the real upload code.
         """
         now = now or datetime.now(timezone.utc)
+        publish = publish or self.publish_scheduled_post
         counts = {"waiting_approval": 0, "posted": 0, "failed": 0}
         for row in self.store.due_schedules(now.isoformat(timespec="minutes")):
             if row["platform"] not in APPROVED_PLATFORMS:
                 self.store.update_schedule(row["id"], "waiting_approval", None)
                 counts["waiting_approval"] += 1
                 continue
-            if publish is None:
-                self.store.update_schedule(row["id"], "failed", SCHEDULE_NOT_CONNECTED)
-                counts["failed"] += 1
-                continue
             try:
                 publish(row)
                 self.store.update_schedule(row["id"], "posted", None)
                 counts["posted"] += 1
-            except Exception as e:
-                self.store.update_schedule(row["id"], "failed", f"{type(e).__name__}: {e}"[:300])
+            except platforms.PlatformError as e:
+                self.store.update_schedule(row["id"], "failed", str(e)[:300])
+                counts["failed"] += 1
+            except Exception:
+                # Details stay out of the database and the logs: they could contain tokens.
+                self.store.update_schedule(row["id"], "failed", "Posting failed. Try again, or reconnect the account.")
                 counts["failed"] += 1
         return counts
 

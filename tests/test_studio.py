@@ -134,6 +134,9 @@ def test_scheduling_is_a_pro_feature(svc):
 
 def test_schedule_validation_and_listing(svc):
     user, job_id, _ = _job_with_clips(svc, email="p@example.com", plan="pro")
+    from conftest_helpers import connect_fake_account
+    connect_fake_account(svc, user, "tiktok")
+    connect_fake_account(svc, user, "youtube")
     later = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     row = svc.create_schedule(user, job_id, 1, "tiktok", later)
     assert row["status"] == "scheduled" and row["platform"] == "tiktok"
