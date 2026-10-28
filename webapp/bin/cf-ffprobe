@@ -1,0 +1,6 @@
+#!/bin/sh
+# ffprobe with resource limits: memory, CPU seconds and wall-clock time.
+# Point FFMPEG at this file. Override the limits with the CLIPFORGE_* variables.
+ulimit -v "${CLIPFORGE_MEM_KB:-8388608}" 2>/dev/null || exit 70
+ulimit -t "${CLIPFORGE_CPU_S:-1800}" 2>/dev/null || exit 70
+exec timeout -k 10 "${CLIPFORGE_PROBE_WALL_S:-120}" "${CLIPFORGE_REAL_FFPROBE:-ffprobe}" "$@"

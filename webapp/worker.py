@@ -19,15 +19,23 @@ from clipforge.pipeline import run_job
 from clipforge.render import output_size, render_clip
 from clipforge.tracking import crop_keyframes, crop_x_expr, detect_face_centers, probe_size
 
-from .main import build_service, watermark_path
+from .main import build_service, configure_logging, watermark_path
 from .service import Worker
 
 log = logging.getLogger("clipforge.worker")
 
+# ffmpeg and ffprobe with memory, CPU and wall-clock limits (see webapp/bin/).
+BIN = Path(__file__).parent / "bin"
+LIMITED = {"ffmpeg": str(BIN / "cf-ffmpeg"), "ffprobe": str(BIN / "cf-ffprobe")}
+
+
+def _settings(data_dir: Path) -> Settings:
+    return Settings(work_dir=data_dir / "work", **LIMITED)
+
 
 def engine_pipeline(data_dir: Path):
     def run(source: Path, job_dir: Path, top: int, watermark: bool) -> int:
-        settings = Settings(work_dir=data_dir / "work")
+        settings = _settings(data_dir)
         logo = watermark_path(data_dir) if watermark else None
         run_job(str(source), settings, top=top, log=lambda m: log.info(m), job_dir=job_dir,
                 watermark=logo)
@@ -39,7 +47,7 @@ def engine_pipeline(data_dir: Path):
 def engine_render(data_dir: Path):
     """Re-render one clip with the user's trim, caption edits, style and aspect ratio."""
     def run(job_dir: Path, source: Path, clip_n: int, aspect: str, spec: dict, watermark: bool) -> None:
-        base = Settings(work_dir=data_dir / "work")
+        base = _settings(data_dir)
         out_w, out_h = output_size(aspect, base)
         s = replace(base, out_w=out_w, out_h=out_h)
         words = [dict(w) for w in json.loads((job_dir / "transcript.json").read_text(encoding="utf-8"))["words"]]
@@ -69,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--poll", type=float, default=5.0, help="seconds to wait when the queue is empty")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging()
     service, data_dir = build_service()
     worker = Worker(service, engine_pipeline(data_dir), render_pipeline=engine_render(data_dir))
     while True:

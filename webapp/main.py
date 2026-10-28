@@ -13,10 +13,24 @@ def data_dir() -> Path:
 
 
 def build_service() -> tuple[Service, Path]:
+    from .billing import BillingConfig, cancel_subscription
+
     root = data_dir()
     root.mkdir(parents=True, exist_ok=True)
     store = Store(root / "app.sqlite3")
-    return Service(store, root), root
+    cfg = BillingConfig.from_env()
+    return Service(store, root, cancel_subscription=lambda sub: cancel_subscription(cfg, sub)), root
+
+
+def configure_logging() -> None:
+    """Basic logging with secrets masked in every handler (see secretbox.redact)."""
+    import logging
+
+    from .secretbox import RedactingFilter
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(RedactingFilter())
 
 
 def watermark_path(root: Path) -> Path:

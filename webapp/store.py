@@ -84,6 +84,13 @@ CREATE TABLE IF NOT EXISTS login_links (
     expires_at TEXT NOT NULL,
     used_at    TEXT
 );
+-- Sign-in requests, kept in the database so limits hold across processes and restarts.
+CREATE TABLE IF NOT EXISTS auth_requests (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    email        TEXT NOT NULL,
+    requested_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_requests_email ON auth_requests (email, requested_at);
 """
 
 
@@ -333,4 +340,45 @@ class Store:
 
     def update_schedule(self, schedule_id: str, status: str, error: str | None) -> None:
         self._write("UPDATE schedules SET status = ?, error = ? WHERE id = ?", (status, error, schedule_id))
+
+    # sign-in rate limit (shared across processes)
+    def record_auth_request(self, email: str, now_iso: str, since_iso: str) -> int:
+        """Records one request and returns how many this address made since since_iso."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._conn.execute("INSERT INTO auth_requests (email, requested_at) VALUES (?, ?)", (email, now_iso))
+                self._conn.execute("DELETE FROM auth_requests WHERE requested_at < ?", (since_iso,))
+                count = self._conn.execute(
+                    "SELECT COUNT(*) FROM auth_requests WHERE email = ? AND requested_at >= ?", (email, since_iso)
+                ).fetchone()[0]
+                self._conn.execute("COMMIT")
+                return count
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+    # account deletion
+    def job_ids_for_user(self, user_id: str) -> list[str]:
+        return [r["id"] for r in self._run("SELECT id FROM jobs WHERE user_id = ?", (user_id,))]
+
+    def delete_user_data(self, user_id: str, email: str) -> None:
+        """Removes every row that belongs to the user, children first. Files are removed by the caller."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                job_ids = [r["id"] for r in self._conn.execute("SELECT id FROM jobs WHERE user_id = ?", (user_id,))]
+                for job_id in job_ids:
+                    self._conn.execute("DELETE FROM renders WHERE job_id = ?", (job_id,))
+                    self._conn.execute("DELETE FROM clip_edits WHERE job_id = ?", (job_id,))
+                self._conn.execute("DELETE FROM schedules WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM jobs WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM api_keys WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM login_links WHERE email = ?", (email,))
+                self._conn.execute("DELETE FROM auth_requests WHERE email = ?", (email,))
+                self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
 

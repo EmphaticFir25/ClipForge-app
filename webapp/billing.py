@@ -165,3 +165,26 @@ def handle_event(store, event: dict) -> str:
         return "ignored"
 
     return "ignored"
+
+
+def cancel_subscription(cfg: BillingConfig, subscription_id: str,
+                        request: Callable[[str, dict], dict] | None = None) -> None:
+    """Cancels a Stripe subscription immediately. Raises BillingError if Stripe refuses."""
+    if not cfg.enabled:
+        raise BillingDisabled("billing isn't configured on this server")
+    if not subscription_id.startswith("sub_"):
+        raise BillingError("unknown subscription")
+    url = f"{STRIPE_API}/subscriptions/{urllib.parse.quote(subscription_id, safe='')}"
+    headers = {"Authorization": f"Bearer {cfg.secret_key}"}
+    (request or _delete_json)(url, headers)
+
+
+def _delete_json(url: str, headers: dict) -> dict:
+    req = urllib.request.Request(url, headers=headers, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        # Report the status only. Stripe's body and our key never reach the caller.
+        raise BillingError(f"Stripe refused the cancellation (status {e.code})")
+

@@ -27,6 +27,12 @@ def create_app(service: Service) -> FastAPI:
 
     billing = BillingConfig.from_env()
 
+    def current_user(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict:
+        user = service.authenticate(x_api_key)
+        if user is None:
+            raise HTTPException(status_code=401, detail="missing or invalid API key")
+        return user
+
     @app.get("/", include_in_schema=False)
     def landing():
         return FileResponse(SITE_DIR / "index.html", media_type="text/html")
@@ -99,12 +105,6 @@ def create_app(service: Service) -> FastAPI:
     def plans():
         return PLANS
 
-    def current_user(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict:
-        user = service.authenticate(x_api_key)
-        if user is None:
-            raise HTTPException(status_code=401, detail="missing or invalid API key")
-        return user
-
     @app.post("/v1/jobs", status_code=201)
     def submit_job(
         file: UploadFile = File(...),
@@ -123,6 +123,13 @@ def create_app(service: Service) -> FastAPI:
     @app.get("/v1/me")
     def me(user: dict = Depends(current_user)):
         return service.usage(user)
+
+    @app.delete("/v1/me", status_code=204)
+    def delete_account(body: dict = Body(...), user: dict = Depends(current_user)):
+        try:
+            service.delete_account(user, str(body.get("confirm_email", "")))
+        except ServiceError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     @app.get("/v1/jobs")
     def list_jobs(user: dict = Depends(current_user)):

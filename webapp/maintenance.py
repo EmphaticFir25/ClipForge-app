@@ -11,7 +11,7 @@ import argparse
 import logging
 import time
 
-from .main import build_service
+from .main import build_service, configure_logging
 
 log = logging.getLogger("clipforge.maintenance")
 
@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="clipforge-maintenance")
     parser.add_argument("--loop", action="store_true")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging()
     while True:
         run_once()
         if not args.loop:

@@ -122,22 +122,24 @@ def hash_key(key: str) -> str:
 
 
 def _default_probe(path: Path) -> float:
-    """Minutes of video, from the engine's ffprobe helper."""
-    from clipforge.config import Settings
-    from clipforge.ingest import probe_duration_seconds
-    return probe_duration_seconds(path, Settings()) / 60.0
+    """Minutes of video. Refuses files that aren't a real video (see media.inspect)."""
+    from .media import MediaRejected, inspect
+    try:
+        return inspect(path)["duration_s"] / 60.0
+    except MediaRejected as e:
+        raise ServiceError(str(e))
 
 
 class Service:
     def __init__(self, store: Store, data_dir: Path, plans: dict | None = None,
-                 probe_minutes: Callable[[Path], float] | None = None, mailer=None):
+                 probe_minutes: Callable[[Path], float] | None = None, mailer=None,
+                 cancel_subscription: Callable[[str], None] | None = None):
         self.store = store
+        self.cancel_subscription = cancel_subscription
         self.data_dir = Path(data_dir)
         self.plans = plans or PLANS
         self.probe_minutes = probe_minutes or _default_probe
         self.mailer = mailer or OutboxMailer(self.data_dir / "outbox")
-        # Per-process rate limit on sign-in links. Move to the database before running several web processes.
-        self._link_requests: dict[str, list[datetime]] = {}
 
     # ----- accounts -----
 
@@ -188,12 +190,10 @@ class Service:
         if "@" not in email or len(email) > 254:
             return SIGN_IN_MESSAGE
         now = datetime.now(timezone.utc)
-        recent = [t for t in self._link_requests.get(email, []) if now - t < timedelta(hours=1)]
-        if len(recent) >= LOGIN_REQUESTS_PER_HOUR:
-            self._link_requests[email] = recent
+        since = (now - timedelta(hours=1)).isoformat(timespec="seconds")
+        requests = self.store.record_auth_request(email, now.isoformat(timespec="seconds"), since)
+        if requests > LOGIN_REQUESTS_PER_HOUR:
             return SIGN_IN_MESSAGE  # silently refuse; the message doesn't change
-        recent.append(now)
-        self._link_requests[email] = recent
 
         if self.store.user_by_email(email) is None:
             self.store.insert_user({
@@ -231,6 +231,25 @@ class Service:
         key = "cf_" + secrets.token_urlsafe(32)
         self._store_key(user["id"], key)
         return {"api_key": key, "email": user["email"], "plan": user["plan"]}
+
+    def delete_account(self, user: dict, confirm_email: str) -> None:
+        """Deletes the account, its footage, clips, keys and schedules. Irreversible.
+
+        A paid subscription is cancelled first through `cancel_subscription`. If that fails,
+        the account is kept so the user is still billed for nothing they can't reach.
+        """
+        if (confirm_email or "").strip().lower() != user["email"]:
+            raise ServiceError("type your email address to confirm")
+        if user.get("stripe_subscription_id"):
+            if self.cancel_subscription is None:
+                raise ServiceError("cancel your paid plan before deleting your account")
+            try:
+                self.cancel_subscription(user["stripe_subscription_id"])
+            except Exception:
+                raise ServiceError("we couldn't cancel your paid plan, so your account is still open. Try again shortly.")
+        for job_id in self.store.job_ids_for_user(user["id"]):
+            shutil.rmtree(self.job_dir(job_id), ignore_errors=True)
+        self.store.delete_user_data(user["id"], user["email"])
 
     def set_plan(self, email: str, plan: str) -> None:
         if plan not in self.plans:
@@ -321,6 +340,8 @@ class Service:
     def _measure(self, source: Path) -> float:
         try:
             minutes = self.probe_minutes(source)
+        except ServiceError:
+            raise
         except Exception:
             raise ServiceError("could not read this video; try exporting it again as an mp4")
         if minutes <= 0:
