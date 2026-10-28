@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex">
+  <title>Checkout · ClipForge</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/static/site/site.css">
+  <script src="/static/site/site.js" defer></script>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="/" aria-label="ClipForge home"><img class="lockup lockup-dark" src="/static/brand/clipforge-horizontal-dark.svg" alt="ClipForge" height="24"><img class="lockup lockup-light" src="/static/brand/clipforge-horizontal-light.svg" alt="" height="24"></a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="/pricing">Pricing</a>
+      <a href="/app">Your account</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn" href="/pricing">Change plan</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <a class="back" href="/pricing">← Back to plans</a>
+  <h1 style="font-size: clamp(2rem, 4.5vw, 3rem);">Review your plan</h1>
+
+  <div class="checkout">
+    <section class="panel" id="planPanel" aria-live="polite">
+      <!-- Filled in by site.js from the plan you picked. -->
+      <p class="muted">Loading your plan…</p>
+    </section>
+
+    <aside class="panel" aria-label="Order summary">
+      <h2 style="font-size:1.4rem; margin-bottom:6px;">Summary</h2>
+      <div id="summary"></div>
+
+      <div class="notice warn" id="noticeText" hidden></div>
+
+      <button class="btn btn-primary btn-lg btn-block" id="payBtn" type="button" disabled style="margin-top:22px;">Checking payments…</button>
+      <p class="error" id="checkoutError" role="alert"></p>
+
+      <ul class="trust">
+        <li>Payment is handled by Stripe. We never see or store your card details.</li>
+        <li>Your plan changes only after Stripe confirms the payment.</li>
+        <li>Questions about billing? Your ClipForge team can help.</li>
+      </ul>
+    </aside>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <span>© <span data-year>2026</span> ClipForge</span>
+    <nav aria-label="Footer">
+      <a href="/pricing">Pricing</a>
+      <a href="/">Home</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -11,10 +11,10 @@ publish anything. Source of truth in code: `PLANS` in `webapp/service.py`.
 | Max upload | 2 GB | 4 GB | 8 GB | 8 GB |
 | Clips per upload | 5 | 15 | 20 | 30 |
 | Logo watermark | Yes | No | No | No |
-| Clip storage | 7 days | 30 days | 90 days | 90 days |
+| Clip storage (purged after this long) | 7 days | 30 days | 90 days | 90 days |
 | Publish to YouTube / TikTok | No | No | Yes, once approved | Yes, once approved |
 | Brand kit | No | No | Yes | Yes |
-| Seats | 1 | 1 | 1 | 3 |
+| Square (1:1) and landscape (16:9) exports | No | Yes | Yes | Yes |
 
 ## What's enforced today
 
@@ -23,10 +23,14 @@ publish anything. Source of truth in code: `PLANS` in `webapp/service.py`.
 
 ## Not enforced yet
 
-- Clip storage retention (the field is shown in the UI, but nothing deletes files).
-- Seats and team sharing.
-- Publishing and the brand kit. These depend on the platform approvals in `LAUNCH_BLOCKERS.md`.
-- Billing. The upgrade buttons are disabled.
+- Seats and team sharing. Removed from the plans until there is a team model; Business no longer lists seats.
+- Publishing is gated: a platform only posts after it's listed in `CLIPFORGE_APPROVED_PLATFORMS`, and each account needs a connected platform login (per-user OAuth is not built).
+- Billing. Stripe code is written and tested with signed fake events; live keys have not been used.
+
+## Enforced by the maintenance job
+
+- Clip retention. `python -m webapp.maintenance --loop` deletes clips and sources for finished jobs older than the plan's storage period. It must be running for retention to happen.
+- Square and landscape exports are gated on the plan in the API.
 
 ## Watermark
 

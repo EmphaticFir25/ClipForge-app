@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="ClipForge plans: start free with 60 source minutes a month, then upgrade for more minutes, longer uploads and no logo.">
+  <title>Pricing · ClipForge</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/static/site/site.css">
+  <script src="/static/site/site.js" defer></script>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="/" aria-label="ClipForge home"><img class="lockup lockup-dark" src="/static/brand/clipforge-horizontal-dark.svg" alt="ClipForge" height="24"><img class="lockup lockup-light" src="/static/brand/clipforge-horizontal-light.svg" alt="" height="24"></a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="/#features">Features</a>
+      <a href="/#how">How it works</a>
+      <a href="/pricing" aria-current="page">Pricing</a>
+      <a href="/#faq">FAQ</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn" href="/app">Sign in</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap page-head">
+    <span class="eyebrow">Pricing</span>
+    <h1 style="margin-top:14px; font-size: clamp(2.2rem, 5vw, 3.6rem);">Plans that grow <span class="grad-text">with your streams.</span></h1>
+    <p class="lead">Start free with a logo on your clips. Upgrade for more minutes, longer uploads and clean exports.</p>
+  </div>
+
+  <div class="wrap">
+    <div class="toggle-row">
+      <div class="toggle" role="group" aria-label="Billing period">
+        <button type="button" data-interval="monthly" aria-pressed="true">Monthly</button>
+        <button type="button" data-interval="yearly" aria-pressed="false">Yearly <span class="save-tag">save 20%</span></button>
+      </div>
+    </div>
+
+    <div class="plan-grid" id="planCards">
+      <!-- Filled in by site.js. Without JavaScript, the comparison table below still lists every plan. -->
+    </div>
+
+    <p class="fine">Prices are launch proposals in US dollars and may change before payments open. Payments open soon. Until then, accounts are set up by the ClipForge team.</p>
+
+    <div class="table-wrap">
+      <table class="compare">
+        <caption class="small muted" style="padding:14px 18px; text-align:left;">Everything side by side</caption>
+        <thead>
+          <tr>
+            <th scope="col">Feature</th>
+            <th scope="col">Free</th>
+            <th scope="col">Creator</th>
+            <th scope="col">Pro</th>
+            <th scope="col">Business</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Source minutes a month</th><td>60</td><td>300</td><td>600</td><td>1,500</td></tr>
+          <tr><th scope="row">Max upload size</th><td>2 GB</td><td>4 GB</td><td>8 GB</td><td>8 GB</td></tr>
+          <tr><th scope="row">Clips per upload</th><td>5</td><td>15</td><td>20</td><td>30</td></tr>
+          <tr><th scope="row">ClipForge logo on clips</th><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+          <tr><th scope="row">Clips kept</th><td>7 days</td><td>30 days</td><td>90 days</td><td>90 days</td></tr>
+          <tr><th scope="row">Post to YouTube and TikTok</th><td>No</td><td>No</td><td>After platform approval</td><td>After platform approval</td></tr>
+          <tr><th scope="row">Square (1:1) and landscape (16:9) exports</th><td>No, vertical only</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+          <tr><th scope="row">Brand kit</th><td>No</td><td>No</td><td>Yes</td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <section class="faq" aria-labelledby="pricing-faq" style="padding-bottom:0; margin-top:56px;">
+      <h2 id="pricing-faq" style="font-size:1.8rem; margin-bottom:20px;">Plan questions</h2>
+      <details>
+        <summary>What counts toward my monthly minutes?</summary>
+        <p>The length of each source file you upload. Clips you create don't add to it, and the total resets at the start of each month.</p>
+      </details>
+      <details>
+        <summary>Can I switch plans later?</summary>
+        <p>Plan changes will be handled through Stripe once payments open. Until then, your ClipForge team can change your plan for you.</p>
+      </details>
+      <details>
+        <summary>Is the yearly price a discount?</summary>
+        <p>Yes, yearly billing works out to 20% less than paying monthly for the same plan.</p>
+      </details>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <div class="cta" style="margin-top:72px;">
+      <h2>Start on the free plan today.</h2>
+      <p>Sign in and upload a recording. You can upgrade whenever you need more minutes.</p>
+      <a class="btn btn-lg" href="/app">Sign in</a>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <span>© <span data-year>2026</span> ClipForge</span>
+    <nav aria-label="Footer">
+      <a href="/">Home</a>
+      <a href="/app">Sign in</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

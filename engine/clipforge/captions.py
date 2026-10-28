@@ -6,9 +6,14 @@ from .config import Settings
 MAX_WORDS_PER_LINE = 4
 MAX_LINE_GAP_S = 0.6
 
-# ASS colours are &HAABBGGRR. Unspoken words are white, the sung word turns yellow.
+# ASS colours are &HAABBGGRR. Unspoken words are white; the spoken word takes the style colour.
 UNSPOKEN = "&H00FFFFFF"
-SPOKEN = "&H0000FFFF"
+CAPTION_STYLES = {
+    "highlight": "&H0000FFFF",  # yellow, the default
+    "plain": "&H00FFFFFF",      # white only, no highlight
+    "signal": "&H002B4BFF",     # signal red (#ff4b2b)
+}
+DEFAULT_STYLE = "highlight"
 
 
 def ass_time(t: float) -> str:
@@ -42,8 +47,10 @@ def group_lines(words: list[dict]) -> list[list[dict]]:
     return lines
 
 
-def build_ass(words: list[dict], clip_start: float, clip_end: float, s: Settings) -> str:
+def build_ass(words: list[dict], clip_start: float, clip_end: float, s: Settings,
+              style: str = DEFAULT_STYLE) -> str:
     """Build an ASS file for one clip. Times are shifted so the clip starts at 0."""
+    spoken = CAPTION_STYLES.get(style, CAPTION_STYLES[DEFAULT_STYLE])
     in_clip = [w for w in words if w["end"] > clip_start and w["start"] < clip_end]
 
     header = f"""[Script Info]
@@ -55,7 +62,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,96,{SPOKEN},{UNSPOKEN},&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,0,2,80,80,520,1
+Style: Default,Arial,96,{spoken},{UNSPOKEN},&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,0,2,80,80,520,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

@@ -39,6 +39,8 @@ def detect_face_centers(source, start: float, duration: float, s: Settings) -> l
         import numpy as np
     except ImportError:
         return []
+    if not hasattr(mp, "solutions"):  # newer mediapipe builds dropped the legacy API
+        return []
 
     src_w, src_h = probe_size(source, s)
     out_w = PROBE_W
@@ -75,11 +77,14 @@ def detect_face_centers(source, start: float, duration: float, s: Settings) -> l
 
 
 def crop_keyframes(centers: list[tuple[float, float]], src_w: int, src_h: int,
-                   max_keys: int = 40) -> list[tuple[float, float]]:
-    """Face centres to (t, crop_x_pixels), smoothed and thinned to max_keys."""
+                   max_keys: int = 40, crop_w: float | None = None) -> list[tuple[float, float]]:
+    """Face centres to (t, crop_x_pixels), smoothed and thinned to max_keys.
+
+    crop_w is the crop's width in source pixels: 9:16 by default, src_h for a square.
+    """
     if not centers:
         return []
-    crop_w = src_h * 9 / 16
+    crop_w = src_h * 9 / 16 if crop_w is None else crop_w
     max_x = max(src_w - crop_w, 0.0)
     keys: list[tuple[float, float]] = []
     current: float | None = None

@@ -6,6 +6,20 @@ from pathlib import Path
 
 from .config import Settings
 
+ASPECTS = ("9:16", "1:1", "16:9")
+DEFAULT_ASPECT = "9:16"
+
+
+def output_size(aspect: str, s: Settings) -> tuple[int, int]:
+    """Pixel size for an aspect ratio. Callers use it to build captions for the same frame."""
+    if aspect == "9:16":
+        return s.out_w, s.out_h
+    if aspect == "1:1":
+        return s.out_w, s.out_w
+    if aspect == "16:9":
+        return s.out_h, s.out_w
+    raise ValueError(f"aspect must be one of {', '.join(ASPECTS)}")
+
 WATERMARK_WIDTH_RATIO = 0.18   # logo width as a share of the frame
 WATERMARK_OPACITY = 0.6
 WATERMARK_MARGIN = 40          # pixels from the top-right corner
@@ -20,20 +34,24 @@ def render_clip(
     ass_path: Path | None = None,
     crop_x: str | None = None,
     watermark: Path | None = None,
+    aspect: str = DEFAULT_ASPECT,
 ) -> Path:
-    """Crop to 9:16, scale, burn captions and (optionally) overlay a logo.
+    """Crop to the chosen aspect ratio, scale, burn captions and (optionally) overlay a logo.
 
-    crop_x is an ffmpeg expression for the crop's left edge (from tracking.crop_x_expr).
-    When it is None the crop is centred. The watermark goes in the top-right corner,
-    above the caption area.
+    crop_x is an ffmpeg expression for the 9:16 crop's left edge (from tracking.crop_x_expr).
+    It applies to 9:16 and 1:1 (the square's left edge). 16:9 is always centred. The watermark goes in the top-right corner.
     """
+    w, h = output_size(aspect, s)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    x_expr = crop_x if crop_x is not None else "(iw-ih*9/16)/2"
-    chain = [
-        f"crop=ih*9/16:ih:{x_expr}:0",
-        f"scale={s.out_w}:{s.out_h}",
-        "setsar=1",
-    ]
+    if aspect == "9:16":
+        x_expr = crop_x if crop_x is not None else "(iw-ih*9/16)/2"
+        crop = f"crop=ih*9/16:ih:{x_expr}:0"
+    elif aspect == "1:1":
+        x_expr = crop_x if crop_x is not None else "(iw-ih)/2"
+        crop = f"crop=ih:ih:{x_expr}:0"
+    else:  # 16:9
+        crop = "crop=iw:iw*9/16:0:(ih-iw*9/16)/2"
+    chain = [crop, f"scale={w}:{h}", "setsar=1"]
     cwd = None
     if ass_path is not None:
         # Run from the ASS file's folder so the subtitles filter doesn't need
@@ -44,7 +62,7 @@ def render_clip(
     cmd = [s.ffmpeg, "-y", "-ss", f"{start:.3f}", "-i", str(source.resolve())]
     if watermark is not None:
         cmd += ["-i", str(watermark.resolve())]
-        logo_w = int(s.out_w * WATERMARK_WIDTH_RATIO)
+        logo_w = int(w * WATERMARK_WIDTH_RATIO)
         graph = (
             f"[0:v]{','.join(chain)}[base];"
             f"[1:v]format=rgba,scale={logo_w}:-1,colorchannelmixer=aa={WATERMARK_OPACITY}[logo];"
