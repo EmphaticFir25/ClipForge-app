@@ -3,10 +3,11 @@
 A paid web service that turns uploaded livestream recordings into scored, captioned
 vertical clips. The processing engine runs locally or on a GPU worker.
 
-**Status: early foundation.** Accounts, plans, uploads, the job queue, the worker, and the
-watermark are built and tested. The web app (`webapp/static`) and the FastAPI routes are
-written but haven't been run in a browser or against uvicorn yet. Billing and publishing
-are not live. See `docs/PRICING.md` and `docs/LAUNCH_BLOCKERS.md`.
+**Status: pre-launch.** Accounts, sign-in, plans, uploads, the job queue, the worker, the
+watermark, the FastAPI routes, and the web pages are built and covered by 201 tests. The app
+starts under uvicorn and serves its pages. Billing checkout and webhook code exists but isn't
+live. YouTube and TikTok account connection and scheduled upload are built but wait on platform
+app approval. See `docs/PRICING.md` and `docs/LAUNCH_BLOCKERS.md`.
 
 ## Design choices
 
@@ -49,10 +50,10 @@ curl -H "X-API-Key: $KEY" -F file=@stream.mp4 -F rights_confirmed=true -F top=5 
 
 ## Not done yet
 
-- The FastAPI routes and the web UI haven't been run. Start uvicorn, sign in with a key, and test an upload in a browser.
+- The web UI hasn't been clicked through in a browser. Sign in, upload a file, and check the clip previews.
 - Placeholder watermark logo (`webapp/assets/watermark.png`).
 - Clip retention and seats aren't enforced yet. See `docs/PRICING.md`.
 - Real-footage tuning, whisper.cpp output check, and face-tracking evaluation.
-- Payments, public signup, email login, and password or key rotation.
+- Turning on payments, public signup, and password or key rotation.
 - Storage cleanup and retention rules.
-- Platform publishing with per-user OAuth.
+- Platform app approval for TikTok, YouTube, and Instagram before public posting.

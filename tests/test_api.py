@@ -39,7 +39,8 @@ def test_every_data_route_refuses_requests_without_a_key(client):
     for method, path in [("get", "/v1/me"), ("get", "/v1/jobs"), ("get", "/v1/jobs/abc"),
                          ("get", "/v1/jobs/abc/clips"), ("get", "/v1/schedules"),
                          ("delete", "/v1/me"), ("get", "/v1/jobs/abc/clips.zip")]:
-        r = getattr(c, method)(path, json={"confirm_email": "x"} if method == "delete" and path == "/v1/me" else None)
+        body = {"confirm_email": "x"} if method == "delete" and path == "/v1/me" else None
+        r = c.request(method.upper(), path, json=body)
         assert r.status_code == 401, path
 
 
@@ -74,10 +75,10 @@ def test_sign_in_always_answers_the_same_way(client):
 def test_account_deletion_over_http(client):
     c, service = client
     key = _key(service, "bye@example.com")
-    assert c.delete("/v1/me", json={"confirm_email": "wrong@example.com"},
-                    headers={"X-API-Key": key}).status_code == 400
-    assert c.delete("/v1/me", json={"confirm_email": "bye@example.com"},
-                    headers={"X-API-Key": key}).status_code == 204
+    assert c.request("DELETE", "/v1/me", json={"confirm_email": "wrong@example.com"},
+                     headers={"X-API-Key": key}).status_code == 400
+    assert c.request("DELETE", "/v1/me", json={"confirm_email": "bye@example.com"},
+                     headers={"X-API-Key": key}).status_code == 204
     assert c.get("/v1/me", headers={"X-API-Key": key}).status_code == 401
 
 

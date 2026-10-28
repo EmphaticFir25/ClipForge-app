@@ -32,7 +32,7 @@ Publishing is not in the web app yet. Plan it as per-user OAuth through the appr
 
 ## Engineering (before public launch)
 
-- Run the FastAPI routes in CI and add API tests.
+- Add CI that runs `pytest -q` on every push. The tests exist; no CI config is committed yet.
 - Replace SQLite with Postgres when you move to multiple workers.
 - Add object storage, monitoring, and error reporting.
 - Verify the engine on real footage, including whisper.cpp output and face tracking.
