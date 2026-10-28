@@ -9,3 +9,5 @@ models/
 *.wav
 *.sqlite3
 .env
+credentials.json
+outbox/
