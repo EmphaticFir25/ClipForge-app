@@ -529,3 +529,9 @@ input[type="checkbox"] { accent-color: var(--signal); width: 18px; height: 18px;
 .fine { line-height: 1.5; }
 .fine a { text-decoration: underline; }
 .list-error { margin: 4px 0 0; color: var(--signal); }
+
+/* sign-in providers */
+.providers { display: grid; gap: 10px; }
+.providers[hidden] { display: none; }
+.provider[hidden] { display: none; }
+.or { text-align: center; color: var(--dust); font-size: .9rem; margin: 4px 0 0; }

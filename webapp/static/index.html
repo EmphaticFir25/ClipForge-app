@@ -19,6 +19,11 @@
   <section class="auth-card" aria-labelledby="signInTitle">
     <a class="brand" href="/" aria-label="ClipForge home"><img class="lockup lockup-dark" src="/static/brand/clipforge-horizontal-dark.svg" alt="ClipForge" height="24"><img class="lockup lockup-light" src="/static/brand/clipforge-horizontal-light.svg" alt="" height="24"></a>
     <h1 id="signInTitle">Cut the stream. Keep the moments.</h1>
+    <div class="providers" id="providers" hidden>
+      <a class="btn block provider" id="btnGoogle" href="/v1/auth/oauth/google/start" hidden>Continue with Google</a>
+      <a class="btn block provider" id="btnGitHub" href="/v1/auth/oauth/github/start" hidden>Continue with GitHub</a>
+      <p class="or" aria-hidden="true">or use email</p>
+    </div>
     <form id="emailForm" class="field">
       <label for="email" class="label">Email</label>
       <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">

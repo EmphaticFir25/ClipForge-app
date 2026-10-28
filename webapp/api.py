@@ -11,10 +11,11 @@ import os
 from pathlib import Path
 
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .billing import BillingConfig, BillingDisabled, BillingError, checkout_form, create_checkout_session, handle_event, verify_signature
+from . import oauth
 from .service import PLANS, QuotaExceeded, Service, ServiceError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -77,6 +78,30 @@ def create_app(service: Service) -> FastAPI:
     @app.post("/v1/auth/start", status_code=202)
     def start_sign_in(body: dict = Body(...)):
         return {"message": service.request_sign_in(str(body.get("email", "")), site_url)}
+
+    @app.get("/v1/auth/providers")
+    def sign_in_providers():
+        return oauth.enabled_providers()
+
+    @app.get("/v1/auth/oauth/{provider}/start", include_in_schema=False)
+    def oauth_start(provider: str):
+        if provider not in oauth.PROVIDERS or oauth.credentials(provider) is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return RedirectResponse(oauth.start_url(provider, site_url, service.store), status_code=302)
+
+    @app.get("/v1/auth/oauth/{provider}/callback", include_in_schema=False)
+    def oauth_callback(provider: str, code: str = "", state: str = "", error: str = ""):
+        # The result goes back in the URL fragment, which the browser keeps and servers never log.
+        from urllib.parse import quote
+        app_url = f"{site_url.rstrip('/')}/app"
+        if error:
+            return RedirectResponse(f"{app_url}#oauth_error={quote('the sign-in was cancelled')}", status_code=302)
+        try:
+            email = oauth.complete(provider, code, state, site_url, service.store)
+            token = service.sign_in_with_verified_email(email)
+        except (oauth.OAuthError, ServiceError) as e:
+            return RedirectResponse(f"{app_url}#oauth_error={quote(str(e))}", status_code=302)
+        return RedirectResponse(f"{app_url}#login={token}", status_code=302)
 
     @app.post("/v1/auth/redeem")
     def redeem_sign_in(body: dict = Body(...)):

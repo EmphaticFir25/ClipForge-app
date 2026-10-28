@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS auth_requests (
     requested_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS auth_requests_email ON auth_requests (email, requested_at);
+-- State and PKCE verifier for "Sign in with Google/GitHub". Each one works once.
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state_hash TEXT PRIMARY KEY,
+    provider   TEXT NOT NULL,
+    verifier   TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at    TEXT
+);
 """
 
 
@@ -378,6 +387,32 @@ class Store:
                 self._conn.execute("DELETE FROM auth_requests WHERE email = ?", (email,))
                 self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
                 self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+    # OAuth sign-in state
+    def insert_oauth_state(self, row: dict[str, Any]) -> None:
+        self._write(
+            "INSERT INTO oauth_states (state_hash, provider, verifier, created_at, expires_at, used_at) "
+            "VALUES (?, ?, ?, ?, ?, NULL)",
+            (row["state_hash"], row["provider"], row["verifier"], row["created_at"], row["expires_at"]),
+        )
+
+    def claim_oauth_state(self, state_hash: str, provider: str, now_iso: str) -> dict | None:
+        """Returns the stored state if it is unused, unexpired and for this provider, and marks it used."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                rows = self._conn.execute(
+                    "SELECT * FROM oauth_states WHERE state_hash = ? AND provider = ? AND used_at IS NULL "
+                    "AND expires_at >= ?", (state_hash, provider, now_iso)).fetchall()
+                row = dict(rows[0]) if rows else None
+                if row is not None:
+                    self._conn.execute("UPDATE oauth_states SET used_at = ? WHERE state_hash = ?",
+                                       (now_iso, state_hash))
+                self._conn.execute("COMMIT")
+                return row
             except Exception:
                 self._conn.execute("ROLLBACK")
                 raise

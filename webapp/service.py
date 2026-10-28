@@ -195,6 +195,18 @@ class Service:
         if requests > LOGIN_REQUESTS_PER_HOUR:
             return SIGN_IN_MESSAGE  # silently refuse; the message doesn't change
 
+        token = self._issue_login_token(email)
+        link = f"{site_url.rstrip('/')}/app#login={token}"
+        self.mailer.send(
+            email, "Your ClipForge sign-in link",
+            "Use this link to sign in to ClipForge. It works once and expires in 20 minutes.\n\n"
+            f"{link}\n\nIf you didn't ask for this, you can ignore this email.",
+        )
+        return SIGN_IN_MESSAGE
+
+    def _issue_login_token(self, email: str) -> str:
+        """Creates the account if needed and returns a single-use sign-in token (20 minutes)."""
+        now = datetime.now(timezone.utc)
         if self.store.user_by_email(email) is None:
             self.store.insert_user({
                 "id": uuid.uuid4().hex, "email": email, "key_hash": "", "plan": "free", "created_at": _now(),
@@ -204,13 +216,15 @@ class Service:
             "token_hash": hash_key(token), "email": email, "created_at": _now(),
             "expires_at": (now + LOGIN_TTL).isoformat(timespec="seconds"), "used_at": None,
         })
-        link = f"{site_url.rstrip('/')}/app#login={token}"
-        self.mailer.send(
-            email, "Your ClipForge sign-in link",
-            "Use this link to sign in to ClipForge. It works once and expires in 20 minutes.\n\n"
-            f"{link}\n\nIf you didn't ask for this, you can ignore this email.",
-        )
-        return SIGN_IN_MESSAGE
+        return token
+
+    def sign_in_with_verified_email(self, email: str) -> str:
+        """For Google and GitHub sign-in: the provider has verified the address, so no email is sent here.
+        Returns a one-time token that the existing redeem step turns into an API key."""
+        email = email.strip().lower()
+        if "@" not in email or len(email) > 254:
+            raise ServiceError("the provider didn't return a usable email address")
+        return self._issue_login_token(email)
 
     def redeem_sign_in(self, token: str) -> dict:
         """Trades a single-use link for an API key. The key is returned once."""

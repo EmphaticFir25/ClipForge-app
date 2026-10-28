@@ -274,7 +274,7 @@
         </div>
         <label class="field" style="grid-template-columns:auto 1fr;align-items:start;gap:10px">
           <input id="rights" type="checkbox">
-          <span class="dust small">I own this footage or have permission to clip it, and I accept the <a href="/terms" target="_blank" rel="noopener">terms of service</a>.</span>
+          <span class="dust small">I own this footage or have permission to clip it, and I accept the <a href="/terms" target="_blank" rel="noopener">terms and conditions</a>.</span>
         </label>
         <div class="progress" id="uploadProgress" hidden><span id="uploadBar"></span></div>
         <p class="dust small" id="uploadText" hidden></p>
@@ -1058,9 +1058,29 @@
     });
   }
 
+  // Shows only the sign-in options the server has set up.
+  async function loadProviders() {
+    try {
+      const res = await fetch("/v1/auth/providers");
+      if (!res.ok) return;
+      const on = await res.json();
+      if (on.google) $("#btnGoogle").hidden = false;
+      if (on.github) $("#btnGitHub").hidden = false;
+      $("#providers").hidden = !(on.google || on.github);
+    } catch { /* offline: email sign-in still works */ }
+  }
+
   async function start() {
     wire();
     showBillingResult();
+    loadProviders();
+    if (location.hash.startsWith("#oauth_error=")) {
+      const message = decodeURIComponent(location.hash.slice("#oauth_error=".length));
+      history.replaceState(null, "", location.pathname + "#/clips");
+      showScreen("signin");
+      $("#signInError").textContent = message;
+      return;
+    }
     if (location.hash.startsWith("#login=")) {
       showScreen("signin");
       if (await redeemFromLink()) {
