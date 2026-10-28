@@ -1,4 +1,4 @@
-"""Business rules: accounts, plan limits, upload checks and job ownership."""
+"""Business rules: accounts, plans, uploads, ownership and worker logic."""
 from __future__ import annotations
 
 import hashlib
@@ -15,10 +15,28 @@ from .store import Store
 GB = 1024 ** 3
 MB = 1024 ** 2
 
-# Limits are placeholders until pricing is decided. See docs/LAUNCH_BLOCKERS.md.
+# Plan details are proposals, not tested with customers. See docs/PRICING.md.
 PLANS = {
-    "free": {"jobs_per_month": 3, "max_upload_bytes": 1 * GB, "max_clips": 5},
-    "pro": {"jobs_per_month": 60, "max_upload_bytes": 8 * GB, "max_clips": 20},
+    "free": {
+        "name": "Free", "price_usd": 0,
+        "source_minutes_month": 60, "max_upload_bytes": 2 * GB, "max_clips": 5,
+        "watermark": True, "retention_days": 7, "publishing": False, "brand_kit": False, "seats": 1,
+    },
+    "creator": {
+        "name": "Creator", "price_usd": 15,
+        "source_minutes_month": 300, "max_upload_bytes": 4 * GB, "max_clips": 15,
+        "watermark": False, "retention_days": 30, "publishing": False, "brand_kit": False, "seats": 1,
+    },
+    "pro": {
+        "name": "Pro", "price_usd": 29,
+        "source_minutes_month": 600, "max_upload_bytes": 8 * GB, "max_clips": 20,
+        "watermark": False, "retention_days": 90, "publishing": True, "brand_kit": True, "seats": 1,
+    },
+    "business": {
+        "name": "Business", "price_usd": 79,
+        "source_minutes_month": 1500, "max_upload_bytes": 8 * GB, "max_clips": 30,
+        "watermark": False, "retention_days": 90, "publishing": True, "brand_kit": True, "seats": 3,
+    },
 }
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 COPY_CHUNK = 4 * MB
@@ -45,11 +63,20 @@ def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
+def _default_probe(path: Path) -> float:
+    """Minutes of video, from the engine's ffprobe helper."""
+    from clipforge.config import Settings
+    from clipforge.ingest import probe_duration_seconds
+    return probe_duration_seconds(path, Settings()) / 60.0
+
+
 class Service:
-    def __init__(self, store: Store, data_dir: Path, plans: dict | None = None):
+    def __init__(self, store: Store, data_dir: Path, plans: dict | None = None,
+                 probe_minutes: Callable[[Path], float] | None = None):
         self.store = store
         self.data_dir = Path(data_dir)
         self.plans = plans or PLANS
+        self.probe_minutes = probe_minutes or _default_probe
 
     # ----- accounts -----
 
@@ -83,6 +110,22 @@ class Service:
         if self.store.set_plan(email.strip().lower(), plan) == 0:
             raise ServiceError("no account with that email")
 
+    def usage(self, user: dict) -> dict:
+        plan = self.plans[user["plan"]]
+        used = self.store.usage_since(user["id"], _month_start())
+        return {
+            "plan": user["plan"],
+            "plan_name": plan["name"],
+            "minutes_used": round(used["minutes"], 1),
+            "minutes_limit": plan["source_minutes_month"],
+            "jobs_this_month": used["jobs"],
+            "max_upload_mb": plan["max_upload_bytes"] // MB,
+            "max_clips": plan["max_clips"],
+            "watermark": plan["watermark"],
+            "retention_days": plan["retention_days"],
+            "publishing": plan["publishing"],
+        }
+
     # ----- jobs -----
 
     def create_job(self, user: dict, filename: str, fileobj: BinaryIO,
@@ -94,29 +137,21 @@ class Service:
             raise ServiceError(f"unsupported file type; use one of {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
         plan = self.plans[user["plan"]]
-        used = self.store.count_jobs_since(user["id"], _month_start())
-        if used >= plan["jobs_per_month"]:
-            raise QuotaExceeded(f"monthly limit reached ({plan['jobs_per_month']} jobs on your plan)")
-
         top = min(max(int(top or 10), 1), plan["max_clips"])
         job_id = uuid.uuid4().hex
         job_dir = self.job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
         source = job_dir / f"source{ext}"
 
-        size = 0
         try:
-            with source.open("wb") as out:
-                while True:
-                    chunk = fileobj.read(COPY_CHUNK)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if size > plan["max_upload_bytes"]:
-                        raise ServiceError("file is larger than your plan allows")
-                    out.write(chunk)
-            if size == 0:
-                raise ServiceError("the uploaded file is empty")
+            size = self._copy_upload(fileobj, source, plan["max_upload_bytes"])
+            minutes = self._measure(source)
+            used = self.store.usage_since(user["id"], _month_start())
+            if used["minutes"] + minutes > plan["source_minutes_month"]:
+                remaining = max(plan["source_minutes_month"] - used["minutes"], 0)
+                raise QuotaExceeded(
+                    f"this video is {minutes:.0f} minutes; your plan has {remaining:.0f} minutes left this month"
+                )
         except Exception:
             shutil.rmtree(job_dir, ignore_errors=True)
             raise
@@ -128,6 +163,7 @@ class Service:
             "status": "queued",
             "source_path": str(source),
             "source_bytes": size,
+            "source_minutes": round(minutes, 2),
             "top": top,
             "clip_count": 0,
             "error": None,
@@ -137,6 +173,30 @@ class Service:
             "finished_at": None,
         })
         return self.public_job(self.store.get_job(job_id))
+
+    def _copy_upload(self, fileobj: BinaryIO, dest: Path, limit: int) -> int:
+        size = 0
+        with dest.open("wb") as out:
+            while True:
+                chunk = fileobj.read(COPY_CHUNK)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > limit:
+                    raise ServiceError("file is larger than your plan allows")
+                out.write(chunk)
+        if size == 0:
+            raise ServiceError("the uploaded file is empty")
+        return size
+
+    def _measure(self, source: Path) -> float:
+        try:
+            minutes = self.probe_minutes(source)
+        except Exception:
+            raise ServiceError("could not read this video; try exporting it again as an mp4")
+        if minutes <= 0:
+            raise ServiceError("this video has no length")
+        return minutes
 
     def get_job(self, user: dict, job_id: str) -> dict | None:
         job = self.store.get_job(job_id)
@@ -165,6 +225,7 @@ class Service:
             "created_at": job["created_at"],
             "started_at": job["started_at"],
             "finished_at": job["finished_at"],
+            "source_minutes": job["source_minutes"],
             "clip_count": job["clip_count"],
             "clips": list(range(1, job["clip_count"] + 1)),
             "error": job["error"],
@@ -173,17 +234,25 @@ class Service:
 
 @dataclass
 class Worker:
-    """Takes one queued job and runs the pipeline on it. `run_pipeline` is injected so tests can fake it."""
+    """Takes one queued job and runs the pipeline on it.
+
+    run_pipeline(source, job_dir, top, watermark) -> clips rendered. It's injected
+    so tests can fake the engine.
+    """
     service: Service
-    run_pipeline: Callable[[Path, Path, int], int]  # (source, job_dir, top) -> clips rendered
+    run_pipeline: Callable[[Path, Path, int, bool], int]
     now: Callable[[], str] = _now
 
     def run_once(self) -> bool:
         job = self.service.store.claim_next_job(self.now())
         if job is None:
             return False
+        owner = self.service.store.get_user_by_id(job["user_id"]) or {}
+        plan = self.service.plans.get(owner.get("plan", "free"), PLANS["free"])
         try:
-            clips = self.run_pipeline(Path(job["source_path"]), self.service.job_dir(job["id"]), job["top"])
+            clips = self.run_pipeline(
+                Path(job["source_path"]), self.service.job_dir(job["id"]), job["top"], plan["watermark"],
+            )
             self.service.store.finish_job(job["id"], clips, self.now())
         except Exception as e:  # record the failure; the worker keeps running
             self.service.store.fail_job(job["id"], f"{type(e).__name__}: {e}", self.now())

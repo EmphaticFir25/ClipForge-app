@@ -23,7 +23,8 @@ def new_job_dir(s: Settings) -> Path:
 
 
 def run_job(source: str, s: Settings, top: int | None = None,
-            chat_file: Path | None = None, log=print, job_dir: Path | None = None) -> Path:
+            chat_file: Path | None = None, log=print, job_dir: Path | None = None,
+            watermark: Path | None = None) -> Path:
     """Run the full pipeline on one local video.
 
     job_dir lets the web app choose the folder. The CLI-style default creates a
@@ -87,7 +88,8 @@ def run_job(source: str, s: Settings, top: int | None = None,
         out = job / "clips" / f"{clip_name}.mp4"
         log(f"Rendering {clip_name} ({m['end'] - m['start']:.0f}s, score {m['score']:.0f}, "
             f"{'face-tracked' if crop_x else 'centred'} crop)")
-        render_clip(video, m["start"], m["end"], out, s, ass_path=ass, crop_x=crop_x)
+        render_clip(video, m["start"], m["end"], out, s, ass_path=ass, crop_x=crop_x,
+                    watermark=watermark)
         queue.add(QueueItem(
             clip_path=str(out),
             title=m["title"],

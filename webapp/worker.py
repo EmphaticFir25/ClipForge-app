@@ -13,16 +13,18 @@ from pathlib import Path
 from clipforge.config import Settings
 from clipforge.pipeline import run_job
 
-from .main import build_service
+from .main import build_service, watermark_path
 from .service import Worker
 
 log = logging.getLogger("clipforge.worker")
 
 
 def engine_pipeline(data_dir: Path):
-    def run(source: Path, job_dir: Path, top: int) -> int:
+    def run(source: Path, job_dir: Path, top: int, watermark: bool) -> int:
         settings = Settings(work_dir=data_dir / "work")
-        run_job(str(source), settings, top=top, log=lambda m: log.info(m), job_dir=job_dir)
+        logo = watermark_path(data_dir) if watermark else None
+        run_job(str(source), settings, top=top, log=lambda m: log.info(m), job_dir=job_dir,
+                watermark=logo)
         clips_dir = job_dir / "clips"
         return len(list(clips_dir.glob("clip_*.mp4"))) if clips_dir.exists() else 0
     return run

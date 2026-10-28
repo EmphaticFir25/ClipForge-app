@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>ClipForge</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/" aria-label="ClipForge home">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9"/><path d="M13 10.5v11l9-5.5z"/></svg>
+    <span>ClipForge</span>
+  </a>
+  <div class="topbar-right" id="topRight" hidden>
+    <button class="plan-chip" id="planChip" type="button" aria-label="Plan and usage">
+      <span id="planName">Free</span>
+      <span class="meter" aria-hidden="true"><span id="meterFill"></span></span>
+      <span id="meterText" class="muted small">0 / 60 min</span>
+    </button>
+    <button class="ghost" id="signOut" type="button">Sign out</button>
+  </div>
+</header>
+
+<!-- Sign-in -->
+<main id="signIn" class="signin" hidden>
+  <section class="card signin-card">
+    <h1>Turn long streams into short clips</h1>
+    <p class="lead">Upload a recording you own. ClipForge finds the moments worth posting, reframes them to vertical video, and adds captions.</p>
+    <form id="signInForm" class="stack">
+      <label for="apiKey">API key</label>
+      <input id="apiKey" name="apiKey" type="password" autocomplete="off" required placeholder="cf_…">
+      <button class="primary" type="submit">Sign in</button>
+      <p class="hint" id="signInError" role="alert"></p>
+    </form>
+    <p class="hint">Accounts are created by the ClipForge team for now.</p>
+  </section>
+</main>
+
+<!-- App -->
+<main id="app" class="app" hidden>
+  <div class="banner" id="watermarkBanner" hidden>
+    <span>Free clips include a ClipForge logo.</span>
+    <a href="#plans">See plans</a>
+  </div>
+
+  <div class="layout">
+    <section class="card compose" aria-labelledby="composeTitle">
+      <div class="card-head">
+        <h2 id="composeTitle">New clip job</h2>
+        <span class="muted small" id="limitsText"></span>
+      </div>
+
+      <form id="uploadForm" class="stack">
+        <label class="dropzone" id="dropzone" tabindex="0">
+          <input id="fileInput" type="file" accept=".mp4,.mov,.mkv,.webm,video/*" hidden>
+          <svg class="drop-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="drop-title" id="dropTitle">Drop a video here, or <u>browse</u></span>
+          <span class="drop-sub" id="dropSub">MP4, MOV, MKV or WebM</span>
+        </label>
+        <p class="hint error" id="fileError" role="alert"></p>
+
+        <div class="field">
+          <label for="clipCount">Clips to make: <strong id="clipCountLabel">10</strong></label>
+          <input id="clipCount" type="range" min="1" max="10" value="10">
+        </div>
+
+        <label class="check">
+          <input id="rights" type="checkbox" required>
+          <span>I own this footage or have permission to clip it, and I accept the terms of service.</span>
+        </label>
+
+        <div class="progress" id="uploadProgress" hidden>
+          <div class="progress-bar"><span id="uploadBar"></span></div>
+          <span class="small muted" id="uploadText">Uploading…</span>
+        </div>
+
+        <button class="primary wide" id="submitBtn" type="submit" disabled>Create clips</button>
+      </form>
+    </section>
+
+    <section class="jobs" aria-labelledby="jobsTitle">
+      <div class="card-head">
+        <h2 id="jobsTitle">Your jobs</h2>
+        <span class="muted small" id="jobsCount"></span>
+      </div>
+      <div id="jobs" class="job-list" aria-live="polite"></div>
+      <div class="empty card" id="jobsEmpty" hidden>
+        <p>No jobs yet. Upload a stream to get your first clips.</p>
+      </div>
+    </section>
+  </div>
+
+  <section class="plans" id="plans" aria-labelledby="plansTitle">
+    <div class="card-head">
+      <h2 id="plansTitle">Plans</h2>
+      <span class="muted small">Prices in USD per month. Billing isn't live yet.</span>
+    </div>
+    <div class="plan-grid" id="planGrid"></div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     status              TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed')),
     source_path         TEXT NOT NULL,
     source_bytes        INTEGER NOT NULL,
+    source_minutes      REAL NOT NULL DEFAULT 0,
     top                 INTEGER NOT NULL,
     clip_count          INTEGER NOT NULL DEFAULT 0,
     error               TEXT,
@@ -71,6 +72,10 @@ class Store:
         rows = self._run("SELECT * FROM users WHERE email = ?", (email,))
         return rows[0] if rows else None
 
+    def get_user_by_id(self, user_id: str) -> dict | None:
+        rows = self._run("SELECT * FROM users WHERE id = ?", (user_id,))
+        return rows[0] if rows else None
+
     def set_plan(self, email: str, plan: str) -> int:
         return self._write("UPDATE users SET plan = ? WHERE email = ?", (plan, email))
 
@@ -90,12 +95,13 @@ class Store:
             (user_id, limit),
         )
 
-    def count_jobs_since(self, user_id: str, since_iso: str) -> int:
+    def usage_since(self, user_id: str, since_iso: str) -> dict:
         rows = self._run(
-            "SELECT COUNT(*) AS n FROM jobs WHERE user_id = ? AND created_at >= ?",
+            "SELECT COUNT(*) AS jobs, COALESCE(SUM(source_minutes), 0) AS minutes "
+            "FROM jobs WHERE user_id = ? AND created_at >= ?",
             (user_id, since_iso),
         )
-        return rows[0]["n"]
+        return {"jobs": rows[0]["jobs"], "minutes": float(rows[0]["minutes"])}
 
     def claim_next_job(self, now_iso: str) -> dict | None:
         """Atomically move the oldest queued job to 'running'. Safe with several workers."""

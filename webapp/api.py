@@ -7,14 +7,28 @@ Not yet run in this repo's CI. The logic is covered by tests/test_service.py.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from .service import QuotaExceeded, Service, ServiceError
+from .service import PLANS, QuotaExceeded, Service, ServiceError
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app(service: Service) -> FastAPI:
     app = FastAPI(title="ClipForge API", version="0.1.0")
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    @app.get("/", include_in_schema=False)
+    def home():
+        return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+
+    @app.get("/v1/plans")
+    def plans():
+        return PLANS
 
     def current_user(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict:
         user = service.authenticate(x_api_key)
@@ -36,6 +50,10 @@ def create_app(service: Service) -> FastAPI:
             raise HTTPException(status_code=429, detail=str(e))
         except ServiceError as e:
             raise HTTPException(status_code=400, detail=str(e))
+
+    @app.get("/v1/me")
+    def me(user: dict = Depends(current_user)):
+        return service.usage(user)
 
     @app.get("/v1/jobs")
     def list_jobs(user: dict = Depends(current_user)):

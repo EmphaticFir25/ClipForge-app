@@ -39,3 +39,13 @@ def extract_audio(video: Path, wav: Path, s: Settings) -> Path:
         check=True,
     )
     return wav
+
+
+def probe_duration_seconds(video: Path, s: Settings) -> float:
+    """Length of the video in seconds, from ffprobe. Used for minute-based plan quotas."""
+    out = subprocess.run(
+        [s.ffprobe, "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(video)],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return float(out)
