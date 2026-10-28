@@ -147,7 +147,7 @@
         current ? el("span", { class: "tag", text: "Your plan" }) : el("span", { class: "tag", text: "" }),
         el("h3", { text: p.name }),
         el("div", { class: "price" }, [
-          document.createTextNode(p.price_usd === 0 ? "Free" : `$${p.price_usd}`),
+          document.createTextNode(`$${p.price_usd}`),
           p.price_usd ? el("small", { text: " / mo" }) : document.createTextNode(""),
         ]),
         el("ul", {}, features.map((f) => el("li", { text: f }))),
@@ -181,7 +181,7 @@
     const idx = stepIndex(job.status);
     const steps = el("div", { class: "steps", "aria-label": `Progress: ${job.status}` },
       STEPS.map((label, i) => {
-        const cls = job.status === "failed" && i === 2 ? "step on" : i < idx || (job.status === "done" && i === 2) ? "step done" : i === idx ? "step on" : "step";
+        const cls = job.status === "failed" && i === 2 ? "step failed" : i < idx || (job.status === "done" && i === 2) ? "step done" : i === idx ? "step on" : "step";
         return el("div", { class: cls, text: label });
       }));
     const meta = `${fmtMinutes(job.source_minutes)} min source · started ${fmtDate(job.created_at)}`;

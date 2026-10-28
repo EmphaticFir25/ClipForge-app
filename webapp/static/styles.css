@@ -150,6 +150,8 @@ label { font-weight: 600; font-size: .92rem; }
 .step.on::before { background: var(--accent); }
 .step.done::before { background: var(--good); }
 .step.on, .step.done { color: var(--text); }
+.step.failed::before { background: var(--bad); }
+.step.failed { color: var(--bad); }
 
 .error-box { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: .88rem;
   background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--text); }
@@ -186,7 +188,12 @@ label { font-weight: 600; font-size: .92rem; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 @media (max-width: 560px) {
-  .topbar-right #planChip .meter { display: none; }
+  .topbar { padding: 10px 14px; }
+  .topbar-right { gap: 8px; }
+  .plan-chip { padding: 5px 10px; gap: 8px; }
+  #meterText, .topbar-right #planChip .meter { display: none; }
+  .ghost { padding: 6px 10px; white-space: nowrap; }
+  .banner { flex-wrap: wrap; }
   .steps { gap: 4px; }
   .clips { grid-template-columns: repeat(2, 1fr); }
 }
